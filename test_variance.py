@@ -18,17 +18,26 @@ G = generate.Generator(base_path=BASE_PATH)
 eps = G.eps
 
 # Setup generation task
+# Setup generation task
+variances = torch.zeros((100))
 start_time = time.time()
-x_T = torch.randn((1, 1, 128, 128), device=device)
-x_0 = G(x_T, n_timesteps=30, t_tilde=0).cpu()
-time_end = time.time()
+x_T = torch.randn((5, 1, 128, 128), device=device)
+for i, n_timesteps in enumerate(range(2, 300, 10)):
+    x_0 = G(x_T, n_timesteps=n_timesteps).cpu()
+    variances[i] = torch.mean(torch.var(x_0, dim=0))
 
-print(f"Done (in {time.time() - start_time:0.4f}s)")
+    print(
+        f"Step ({i+1}) -> ({n_timesteps}) done (in {time.time() - start_time:0.2f}s)."
+    )
+variances = variances[: i + 1]
 
 # Visualize
-plt.imshow(x_0[0, 0], cmap="gray")
-plt.axis("off")
+plt.plot(torch.arange(2, 300, 10), variances)
+plt.grid()
+plt.xlabel(r"n_timesteps")
+plt.legend(
+    [
+        r"$\mathbb{E}[Var(G(N(0, I), t))]$",
+    ]
+)
 plt.show()
-
-# Get variance
-# print(torch.mean(torch.var(x_0, dim=0)))

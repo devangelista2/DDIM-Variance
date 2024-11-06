@@ -43,7 +43,7 @@ class Generator:
 
         # Initialize reverse loop
         x_t = x_T
-        for t in reversed(range(t_tilde, n_timesteps)):
+        for t in self.scheduler.timesteps:
             with torch.no_grad():
                 eps_t = self.eps(x_t, t)
                 x_t = self.scheduler.step(eps_t, t, x_t).prev_sample
