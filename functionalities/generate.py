@@ -1,83 +1,51 @@
-from diffusers import (
-    DDIMPipeline,
-    UNet2DModel,
-    DDIMScheduler,
-)
-import torch
 import numpy as np
+import torch
+from diffusers import DDIMPipeline, DDIMScheduler, UNet2DModel
+
 from miscellaneous import utilities
 
 
-def generate_random(
-    cfg,
-    n_samples=4,
-    seed=None,
-):
-    # Set device
-    device = utilities.set_device()
+class Denoiser:
+    def __init__(self, base_path, *args, **kwargs):
+        # Set device
+        self.device = utilities.set_device()
 
-    # Initialize model and schedule
-    model = UNet2DModel.from_pretrained(cfg["path"]["model"])
-    scheduler = DDIMScheduler.from_pretrained(cfg["path"]["scheduler"])
+        # Initialize model and schedule
+        self.model = UNet2DModel.from_pretrained(base_path + "/unet").to(self.device)
 
-    # Initialize the pipeline with the model and scheduler
-    pipeline = DDIMPipeline(unet=model, scheduler=scheduler).to(device)
+        # Set model parameter requires_grad to False to reduce memory consumption
+        for param in self.model.parameters():
+            param.requires_grad = False
 
-    # Generate images
-    if seed is not None:
-        seed = torch.Generator().manual_seed(seed)
+    def __call__(self, x_t, t, *args, **kwargs):
+        with torch.no_grad():
+            predicted_noise = self.model(x_t, t).sample
+        return predicted_noise
 
-    x_gen_list = pipeline(
-        batch_size=n_samples,
-        num_inference_steps=cfg["inversion"]["ODE"]["n_timesteps_generation"],
-        generator=seed,
-    ).images
 
-    # Convert list of images to tensor
-    for i in range(len(x_gen_list)):
-        # Read and convert
-        x_tmp = utilities.normalize(
-            torch.tensor(
-                np.array(
-                    x_gen_list[i],
-                    dtype=np.float32,
-                ),
-            )
-            .unsqueeze(0)
-            .unsqueeze(0)
+class Generator:
+    def __init__(self, base_path, *args, **kwargs):
+        # Set device
+        self.device = utilities.set_device()
+
+        # Initialize scheduler and Denoiser
+        self.eps = Denoiser(base_path=base_path)
+        self.scheduler = DDIMScheduler(
+            num_train_timesteps=1000,
+            beta_start=0.0001,
+            beta_end=0.02,
+            beta_schedule="linear",
         )
 
-        # Concatenate
-        if i == 0:
-            x_gen = x_tmp
-        else:
-            x_gen = torch.cat((x_gen, x_tmp), dim=0)
+    def __call__(self, x_T, n_timesteps=100, t_tilde=0, *args, **kwargs):
+        # Set schedule timesteps
+        self.scheduler.set_timesteps(n_timesteps)
 
-    return x_gen
+        # Initialize reverse loop
+        x_t = x_T
+        for t in reversed(range(t_tilde, n_timesteps)):
+            with torch.no_grad():
+                eps_t = self.eps(x_t, t)
+                x_t = self.scheduler.step(eps_t, t, x_t).prev_sample
 
-
-def generate_from_z(
-    cfg,
-    z,
-    n_timesteps,
-):
-    # Set device
-    device = utilities.set_device()
-
-    # Initialize model and schedule
-    model = UNet2DModel.from_pretrained(cfg["path"]["model"]).to(device)
-    scheduler = DDIMScheduler()
-
-    # Set model parameter requires_grad to False to reduce memory consumption
-    for param in model.parameters():
-        param.requires_grad = False
-
-    # Set schedule timesteps
-    scheduler.set_timesteps(n_timesteps)
-
-    for t in reversed(range(n_timesteps)):
-        with torch.no_grad():
-            predicted_noise = model(z, t).sample
-            z = scheduler.step(predicted_noise, t, z).prev_sample
-
-    return z
+        return x_t
