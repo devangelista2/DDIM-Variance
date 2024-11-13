@@ -44,7 +44,7 @@ cum_frac_t = torch.cumsum(frac_t, dim=0)
 pred_variances = torch.zeros_like(cum_frac_t)
 for i in range(len(cum_frac_t)):
     pred_variances[i] = cum_frac_t[-i - 1]
-scheduler.set_timesteps(1000)
+scheduler.set_timesteps(100)
 
 # Initialize reverse loop
 torch.manual_seed(42)
